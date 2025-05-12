@@ -1,7 +1,5 @@
 # This file will define the CFT collection methods to generate Curriculum-Coded prompts
 
-# CODE ADAPTED FROM ETHAN FOR GENERATING CFT FROM CLAUDE
-
 import anthropic
 from datasets import load_dataset
 import json
