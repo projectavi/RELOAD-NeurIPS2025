@@ -1,0 +1,11 @@
+embedding_dim: 4096
+attack_module: model.embed_tokens
+formatting_tokens:
+  answer_prefix: ""
+  answer_suffix: ""
+  prompt_prefix: "[INST] "
+  prompt_suffix: " [/INST]"
+hf_name: open-unlearning/tofu_Llama-2-7b-chat-hf_retain90
+attn_implementation: eager
+load_in_8bit: false
+load_in_4bit: false

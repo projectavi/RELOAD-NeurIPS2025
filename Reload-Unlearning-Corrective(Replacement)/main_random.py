@@ -1,0 +1,280 @@
+import copy
+import os
+from collections import OrderedDict
+
+import wandb
+
+import arg_parser
+# import evaluation
+import torch
+import torch.nn as nn
+import torch.optim
+import torch.utils.data
+import unlearn
+import utils
+import transform_dataset
+
+from models import *
+
+# import pruner
+from trainer import validate
+
+
+def main(args=None, wandb_run=None, model_trained=None):
+    if args is None:
+        args = arg_parser.parse_args()
+
+    if args.device is None:
+        if torch.cuda.is_available():
+            torch.cuda.set_device(int(args.gpu))
+            device = torch.device(f"cuda:{int(args.gpu)}")
+        else:
+            device = torch.device("cpu")
+    else:
+        device = torch.device(args.device)
+
+    print("Method: " + args.unlearn + ", Device: " + str(device))
+
+    os.makedirs(args.save_dir, exist_ok=True)
+    if args.seed:
+        utils.setup_seed(args.seed)
+    seed = args.seed
+    # prepare dataset
+    (
+        model,
+        train_loader_full,
+        val_loader,
+        test_loader,
+        marked_loader,
+    ) = utils.setup_model_dataset(args)
+    model.to(device)
+
+    def replace_loader_dataset(
+        dataset, batch_size=args.batch_size, seed=1, shuffle=True
+    ):
+        utils.setup_seed(seed)
+        return torch.utils.data.DataLoader(
+            dataset,
+            batch_size=batch_size,
+            num_workers=0,
+            pin_memory=True,
+            shuffle=shuffle,
+        )
+
+    forget_dataset = copy.deepcopy(marked_loader.dataset)
+    if args.dataset == "svhn":
+        try:
+            marked = forget_dataset.targets < 0
+        except:
+            marked = forget_dataset.labels < 0
+        forget_dataset.data = forget_dataset.data[marked]
+        try:
+            forget_dataset.targets = -forget_dataset.targets[marked] - 1
+        except:
+            forget_dataset.labels = -forget_dataset.labels[marked] - 1
+        forget_loader = replace_loader_dataset(forget_dataset, seed=seed, shuffle=True)
+        print(len(forget_dataset))
+        retain_dataset = copy.deepcopy(marked_loader.dataset)
+        try:
+            marked = retain_dataset.targets >= 0
+        except:
+            marked = retain_dataset.labels >= 0
+        retain_dataset.data = retain_dataset.data[marked]
+        try:
+            retain_dataset.targets = retain_dataset.targets[marked]
+        except:
+            retain_dataset.labels = retain_dataset.labels[marked]
+        retain_loader = replace_loader_dataset(retain_dataset, seed=seed, shuffle=True)
+        print(len(retain_dataset))
+        assert len(forget_dataset) + len(retain_dataset) == len(
+            train_loader_full.dataset
+        )
+    else:
+        try:
+            marked = forget_dataset.targets < 0
+            forget_dataset.data = forget_dataset.data[marked]
+            forget_dataset.targets = -forget_dataset.targets[marked] - 1
+            forget_loader = replace_loader_dataset(
+                forget_dataset, seed=seed, shuffle=True
+            )
+            print(len(forget_dataset))
+            retain_dataset = copy.deepcopy(marked_loader.dataset)
+            marked = retain_dataset.targets >= 0
+            retain_dataset.data = retain_dataset.data[marked]
+            retain_dataset.targets = retain_dataset.targets[marked]
+            retain_loader = replace_loader_dataset(
+                retain_dataset, seed=seed, shuffle=True
+            )
+            print(len(retain_dataset))
+            assert len(forget_dataset) + len(retain_dataset) == len(
+                train_loader_full.dataset
+            )
+        except:
+            marked = forget_dataset.targets < 0
+            forget_dataset.imgs = forget_dataset.imgs[marked]
+            forget_dataset.targets = -forget_dataset.targets[marked] - 1
+            forget_loader = replace_loader_dataset(
+                forget_dataset, seed=seed, shuffle=True
+            )
+            print(len(forget_dataset))
+            retain_dataset = copy.deepcopy(marked_loader.dataset)
+            marked = retain_dataset.targets >= 0
+            retain_dataset.imgs = retain_dataset.imgs[marked]
+            retain_dataset.targets = retain_dataset.targets[marked]
+            retain_loader = replace_loader_dataset(
+                retain_dataset, seed=seed, shuffle=True
+            )
+            print(len(retain_dataset))
+            assert len(forget_dataset) + len(retain_dataset) == len(
+                train_loader_full.dataset
+            )
+
+    unlearn_data_loaders = OrderedDict(
+        retain=retain_loader, forget=forget_loader, val=val_loader, test=test_loader, full=train_loader_full
+    )
+
+    trained_model = None
+
+    if args.task == "replace" and args.replacement_type == "plausibly_incorrect_label":
+        checkpoint = torch.load("./trained_models/0cifar100_resnet18_model_SA_best.pth.tar", map_location=device)
+        if "state_dict" in checkpoint.keys():
+            checkpoint = checkpoint["state_dict"]
+
+        trained_model = copy.deepcopy(model).to(device)
+
+        trained_model.load_state_dict(checkpoint, strict=False)
+
+    normalize = None
+
+    if args.task == "replace":
+        unlearn_data_loaders = utils.replace_data(unlearn_data_loaders, args, model=trained_model)
+        if args.replacement_type == "domain_adaptation":
+            unlearn_data_loaders, normalize = unlearn_data_loaders
+        retain_dataset = unlearn_data_loaders["retain"].dataset
+        forget_dataset = unlearn_data_loaders["forget"].dataset
+
+    print(f"number of retain dataset {len(retain_dataset)}")
+    print(f"number of forget dataset {len(forget_dataset)}")
+
+    del trained_model
+
+    criterion = nn.CrossEntropyLoss()
+
+    evaluation_result = None
+
+    if args.resume:
+        checkpoint = unlearn.load_unlearn_checkpoint(model, device, args)
+
+    if args.resume and checkpoint is not None:
+        model, evaluation_result = checkpoint
+    else:
+
+        checkpoint = torch.load(args.mask, map_location=device)
+        if "state_dict" in checkpoint.keys():
+            checkpoint = checkpoint["state_dict"]
+
+        if args.path:
+            mask = torch.load(args.path)
+
+        if args.unlearn != "retrain" and args.unlearn != "retrain_until":
+            print("Loading model")
+            model.load_state_dict(checkpoint, strict=False)
+        else:
+            print("Retraining model")
+
+        if args.task == "replace":
+            for name, loader in unlearn_data_loaders.items():
+                utils.dataset_convert_to_test(loader.dataset, args)
+                val_acc, loss = validate(loader, model, criterion, args)
+                losses = utils.compute_losses(model, loader, device)
+                # if name == "forget":
+                #     target_acc = validate(loader, untrained_model, criterion, args)
+                #     retrain_diff = abs(val_acc - target_acc) # Abs because we want it to be as close as possible
+                # else:
+                #     target_acc = validate(loader, trained_model, criterion, args)
+                #     retrain_diff = target_acc - val_acc # No abs because if its negative then its a good thing
+                wandb_run.log({
+                        f"original_{name}_accuracy": val_acc,
+                        f"original_{name}_loss": losses.mean(),
+                    })
+                if args.task == "replace" and args.replacement_type == "poisoning" and name != "forget":
+                    poisoned_loader = transform_dataset.inject_backdoor_loader(loader, args)
+                    utils.dataset_convert_to_test(poisoned_loader.dataset, args)
+                    val_acc, loss = validate(loader, model, criterion, args)
+                    wandb_run.log({
+                        f"original_{name}_poisoned_accuracy": val_acc,
+                        f"original_{name}_poisoned_loss": losses.mean(),
+                    })
+
+
+        # trained_model = copy.deepcopy(model)
+        # trained_model.to(device)
+
+        unlearn_method = unlearn.get_unlearn_method(args.unlearn)
+
+        # Start a timer
+        if device != torch.device("cpu"):
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+
+        if normalize is not None:
+            print("Changing model.normalize because this is a domain adaptation task")
+            model.normalize = normalize.to(device)
+
+        evals = unlearn_method(data_loaders=unlearn_data_loaders, model=model, criterion=criterion, args=args, mask=mask, optimizer=None, epoch=0,
+                               wandb_run=wandb_run)
+
+        epochs_until = evals["epoch_count"] if "epoch_count" in evals else args.epochs if args.unlearn == "retrain_until" else 0
+
+        # End the timer
+        if device != torch.device("cpu"):
+            end.record()
+
+        unlearn.save_unlearn_checkpoint(model, None, args)
+
+    if evaluation_result is None:
+        evaluation_result = {}
+
+    accuracy = {}
+
+    if "new_accuracy" not in evaluation_result:
+        for name, loader in unlearn_data_loaders.items():
+            utils.dataset_convert_to_test(loader.dataset, args)
+            val_acc, loss = validate(loader, model, criterion, args)
+            # if name == "forget":
+            #     target_acc = validate(loader, untrained_model, criterion, args)
+            #     retrain_diff = abs(val_acc - target_acc) # Abs because we want it to be as close as possible
+            # else:
+            #     target_acc = validate(loader, trained_model, criterion, args)
+            #     retrain_diff = target_acc - val_acc # No abs because if its negative then its a good thing
+            accuracy[name] = val_acc
+            print(f"{name} acc: {val_acc}")
+            if args.task == "replace" and args.replacement_type == "poisoning" and name != "forget":
+                poisoned_loader = transform_dataset.inject_backdoor_loader(loader, args)
+                utils.dataset_convert_to_test(poisoned_loader.dataset, args)
+                val_acc, loss = validate(loader, model, criterion, args)
+                accuracy[f"{name}_poisoned"] = val_acc
+                print(f"{name}_poisoned acc: {val_acc}")
+
+            # wandb.log({f"{name} acc": val_acc,
+            #            f"{name} target acc": target_acc,
+            #            f"{name} acc target diff": retrain_diff,
+            #            "time(s)": start.elapsed_time(end) / 1000})
+        if device != torch.device("cpu"):
+            accuracy['time'] = start.elapsed_time(end) / 1000
+        accuracy["epoch_count"] = epochs_until
+
+        evaluation_result["accuracy"] = accuracy
+        # unlearn.save_unlearn_checkpoint(model, evaluation_result, args)
+
+    metrics = {
+        "log": evals,
+        "final": accuracy
+    }
+
+    return metrics, model
+
+
+if __name__ == "__main__":
+    main()

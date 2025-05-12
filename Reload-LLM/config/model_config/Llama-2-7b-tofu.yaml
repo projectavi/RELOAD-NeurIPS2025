@@ -1,0 +1,6 @@
+embedding_dim: 4096
+attack_module: model.embed_tokens
+hf_name: locuslab/tofu_ft_llama2-7b
+attn_implementation: eager
+load_in_8bit: false
+load_in_4bit: false
