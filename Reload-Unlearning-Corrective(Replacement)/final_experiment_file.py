@@ -120,7 +120,6 @@ if __name__ == "__main__":
     # A task is selected. The first thing to do is train the models. For this we just submit batch jobs to m2 and m3 qos. There will be 10 training runs. Submit 4 to m2 and 6 to m3.
     if task == "replace":
         # First check how many of the trained models exist
-        # These will be under /scratch/ssd004/scratch/newatiaa/models
         seeds = [i for i in range(0, 10)]
 
         seeds_trained = []
@@ -200,7 +199,7 @@ if __name__ == "__main__":
         if os.path.exists(trained_model_path):
             print(f"TRAINED MODEL FOUND")
             # CHECK IF THE RETRAINED MODELS EXIST FOR EACH SEED AND IF NOT THEN BATCH SUBMIT THEM, 4 on m2, 6 on m3
-            retrained_model_dir = f"/scratch/ssd004/scratch/newatiaa/logs"
+            retrained_model_dir = f"./logs"
             seeds = [i for i in range(1, 11)]
 
             seeds_trained = []
