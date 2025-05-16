@@ -95,8 +95,8 @@ if __name__ == "__main__":
     f.truncate()
     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     f.close()
-    trained_model_dir = "/scratch/ssd004/scratch/newatiaa/models"
-    log_dir = "/scratch/ssd004/scratch/newatiaa/logs"
+    trained_model_dir = "./models"
+    log_dir = "./logs"
 
     arch = chosen_task[0]
     dataset = chosen_task[1]
