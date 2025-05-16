@@ -222,7 +222,7 @@ def feature_invariance(data, args=None):
         import os
 
         job_id = os.environ.get("SLURM_JOB_ID")
-        job_dir = f"/checkpoint/newatiaa/{job_id}"
+        job_dir = f"./{job_id}"
 
         try:
             os.makedirs(job_dir, exist_ok=True)
@@ -241,7 +241,7 @@ def feature_invariance(data, args=None):
         if not torch.cuda.is_available():
             os.makedirs("./checkpoint", exist_ok=True)
 
-        checkpoints = os.listdir("/checkpoint/newatiaa") if torch.cuda.is_available() else os.listdir("./checkpoint")
+        checkpoints = os.listdir("./checkpoints") if torch.cuda.is_available() else os.listdir("./checkpoint")
         for job in checkpoints:
             if os.path.exists(os.path.join(job, data_name)) and os.path.exists(os.path.join(job, label_name)):
                 source_data = os.path.join(job, data_name)
@@ -834,7 +834,7 @@ def noisy_replacement(data, args=None):
 
     print("Noising the dataset")
 
-    save_dir = f"/scratch/ssd004/scratch/newatiaa/noisy_datasets/{args.dataset}_{args.seed}"
+    save_dir = f"./noisy_datasets/{args.dataset}_{args.seed}"
 
     if isinstance(data, OrderedDict):
         print("Loading from file")
