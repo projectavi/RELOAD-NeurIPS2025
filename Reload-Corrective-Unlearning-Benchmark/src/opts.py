@@ -39,8 +39,8 @@ def parse_args():
     parser.add_argument('--wd', type=float, default=0.0005, help='learning rate (default: 0.01)')
     
     # Defaults
-    parser.add_argument('--data_dir', type=str, default='/scratch/ssd004/scratch/newatiaa/data')
-    parser.add_argument('--save_dir', type=str, default='/scratch/ssd004/scratch/newatiaa/logs')
+    parser.add_argument('--data_dir', type=str, default='./data')
+    parser.add_argument('--save_dir', type=str, default='./logs')
     parser.add_argument('--exp_name', type=str, default='unlearn')
     parser.add_argument('--device', type=str, default='cuda')
     args = parser.parse_args()
