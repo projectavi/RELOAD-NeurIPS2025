@@ -133,7 +133,7 @@ def get_deletion_set(deletion_size, manip_dict, train_size, dataset, method, sav
     return delete_idx, retain_idx
 
 class DatasetWrapper(data.Dataset):
-    def __init__(self, dataset, manip_dict, mode='pretrain', corrupt_val=None, corrupt_size=3, delete_idx=None):
+    def __init__(self, dataset, manip_dict, mode='pretrain', corrupt_val=None, corrupt_size=3, delete_idx=None, replace_idx=None):
         self.dataset = dataset
         self.manip_dict = manip_dict
         self.mode = mode
@@ -141,22 +141,34 @@ class DatasetWrapper(data.Dataset):
         self.corrupt_val = corrupt_val
         self.corrupt_size = corrupt_size
         self.delete_idx = delete_idx
+        self.replace_idx = replace_idx
         assert(mode in ['pretrain', 'unlearn', 'manip', 'test', 'test_adversarial'])
     
     def __getitem__(self, index):
         image, label = self.dataset.__getitem__(index)
-
+        # old_image = image.clone()
         if self.mode == 'pretrain': 
-            if int(index) in self.manip_dict: # Do nasty things while selecting samples from the manip set
-                label = self.manip_dict[int(index)]
-                if self.corrupt_val is not None:
-                    image[:,-self.corrupt_size:,-self.corrupt_size:] = self.corrupt_val # Have the bottom right corner of the image as the poison
+
+            if self.replace_idx is None:
+                if int(index) in self.manip_dict: # Do nasty things while selecting samples from the manip set
+                    label = self.manip_dict[int(index)]
+                    if self.corrupt_val is not None:
+                        image[:,-self.corrupt_size:,-self.corrupt_size:] = self.corrupt_val # Have the bottom right corner of the image as the poison
+            else: # If replacement is occurring, then ensure that the replaced idx are not corrupted
+                if int(index) in self.manip_dict and int(index) not in self.replace_idx: # Do nasty things while selecting samples from the manip set
+                    label = self.manip_dict[int(index)]
+                    if self.corrupt_val is not None:
+                        image[:,-self.corrupt_size:,-self.corrupt_size:] = self.corrupt_val # Have the bottom right corner of the image as the poison
+                
         if self.delete_idx is None:
             self.delete_idx = torch.tensor(list(self.manip_dict.keys()))
         indel = int(index in self.delete_idx)
 
+        # if self.replace_idx is not None and int(index) in self.replace_idx:
+            # assert(image == old_image).all(), "Image in replace_idx should not be modified in IC mode"
+
         if self.mode in ['test', 'test_adversarial']:
-            if self.mode == 'test_adversarial':
+            if (self.mode == 'test_adversarial' and self.replace_idx is None) or (self.mode == 'test_adversarial' and int(index) not in self.replace_idx):
                 image[:,-self.corrupt_size:,-self.corrupt_size:] = self.corrupt_val
             return image, label
         else:

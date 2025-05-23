@@ -11,6 +11,7 @@ def parse_args():
     parser.add_argument('--forget_set_size', type=int, default=500, help='Number of samples to be manipulated')
     parser.add_argument('--patch_size', type=int, default=3, help='Creates a patch of size patch_size x patch_size for poisoning at bottom right corner of image')
     parser.add_argument('--deletion_size', type=int, default=None, help='Number of samples to be deleted')
+    parser.add_argument('--with_replacement', action='store_true', help='Whether to use replacement strategy for deletion')
 
     # Method Specific Params
     parser.add_argument('--k', type=int, default=-1, help='All layers are freezed except the last-k layers, -1 means unfreeze all layers')

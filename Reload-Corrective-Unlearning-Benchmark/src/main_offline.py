@@ -35,6 +35,9 @@ if __name__ == '__main__':
 
     print('==> Opts: ',opt)
 
+    if opt.with_replacement and opt.exp_name != "pretrainmodel":
+        opt.exp_name = opt.exp_name + '(replacement)'
+
     # wandb_run = wandb.init(project="corrective-unlearning-bench", config=opt)
     wandb_run = None
 
@@ -117,10 +120,23 @@ if __name__ == '__main__':
     method = getattr(methods, 'ApplyK')(opt=opt, model=model) if opt.unlearn_method in ['EU', 'CF'] else getattr(methods, opt.unlearn_method)(opt=opt, model=model)
 
     wtrain_delete_set = DatasetWrapper(train_set, manip_dict, mode='pretrain', corrupt_val=corrupt_val, corrupt_size=corrupt_size, delete_idx=forget_idx)
+    
     # Get the dataloaders
     retain_loader = torch.utils.data.DataLoader(wtrain_delete_set, batch_size=opt.batch_size, shuffle=False, sampler=SubsetRandomSampler(retain_idx), num_workers=4, pin_memory=True)
     train_loader = torch.utils.data.DataLoader(wtrain_delete_set, batch_size=opt.batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    forget_loader = torch.utils.data.DataLoader(wtrain_delete_set, batch_size=opt.batch_size, shuffle=False, sampler=SubsetRandomSampler(forget_idx), num_workers=4, pin_memory=True)
+    forget_loader = torch.utils.data.DataLoader(wtrain_delete_set, batch_size=opt.batch_size, shuffle=False, sampler=SubsetSequentialSampler(forget_idx), num_workers=4, pin_memory=True)
+    print(len(retain_loader))
+
+    if opt.with_replacement:
+        # Remove the forget_idx from the manip_dict
+        for i in range(len(forget_idx)):
+            del manip_dict[forget_idx[i].item()]
+
+        wtrain_replace_set = DatasetWrapper(train_set, manip_dict, mode='pretrain', corrupt_val=corrupt_val, corrupt_size=corrupt_size, delete_idx=forget_idx)
+        
+
+        retain_loader = torch.utils.data.DataLoader(wtrain_replace_set, batch_size=opt.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+        print(len(retain_loader))
 
     if opt.unlearn_method in ['Naive', 'EU', 'CF']:
         method.unlearn(train_loader=retain_loader, test_loader=test_loader, eval_loaders=eval_loaders)
@@ -129,7 +145,7 @@ if __name__ == '__main__':
     elif opt.unlearn_method in ['Scrub', 'SSD']:
         method.unlearn(train_loader=retain_loader, test_loader=test_loader, forget_loader=forget_loader, eval_loaders=eval_loaders)
     elif opt.unlearn_method in ['Reload']:
-        corr_score = method.unlearn(train_loader=retain_loader, test_loader=test_loader, forget_loader=forget_loader, eval_loaders=eval_loaders, wandb_run=wandb_run)
+        corr_score = method.unlearn(train_loader=train_loader, retain_loader=retain_loader, test_loader=test_loader, forget_loader=forget_loader, eval_loaders=eval_loaders, wandb_run=wandb_run)
     
     outcome = method.compute_and_save_results(train_test_loader, test_loader, adversarial_train_loader, adversarial_test_loader, wandb_run=wandb_run, method_handle=opt.unlearn_method)
 
