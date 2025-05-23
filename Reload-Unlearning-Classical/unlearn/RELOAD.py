@@ -155,7 +155,7 @@ def RELOAD(data_loaders, model, criterion, optimizer, epoch, args, mask=None, wa
                 num_ones = inverted_mask.sum(dim=1).clamp(min=1)
                 std = gain / torch.sqrt(num_ones)
                 init = torch.nn.init.normal_(zeros_like, 0, std.mean().item())
-            elif args.init == "Avi_Normal" or args.init == "Avi_Uniform":
+            elif args.init == "Test_Normal" or args.init == "Test_Uniform":
                 # Initialize the weights proportional to their importance
                 forget_gradients = args.forget_gradients
                 forget_gradients = forget_gradients[name].to(device)
